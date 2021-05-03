@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset='utf-8'>
+<link rel='stylesheet' href='___res/KaTeX/katex.min.css'>
+<link rel='stylesheet' href='___res/KaTeX/contrib/copy-tex.min.css'>
+<link rel='stylesheet' href='___res/Styles.css'>
+</head>
+<script>
+let nestingLevel = 0;
+</script>
+<script defer src='___res/UnprotectMath.js'></script>
+<script defer src='___res/KaTeX/katex.min.js'></script>
+<script defer src='___res/KaTeX/contrib/auto-render.min.js'></script>
+<script defer src='___res/KaTeX/contrib/copy-tex.min.js'></script>
+<script defer src='___res/0_TagTable.js'></script>
+<script defer src='___res/1_Utils.js'></script>
+<script defer src='___res/2_Article.js'></script>
+<script defer src='___res/3_Index.js'></script>
+<script defer src='___res/9_Main.js'></script>
+<body onload='renderMathInElement(document.body);'>
+<h1>Скалярное произведение (dot product)</h1>
+<p>Результат <a href="%D0%92%D0%B5%D0%BA%D1%82%D0%BE%D1%80%D0%BD%D0%BE%D0%B5%20%D0%BF%D1%80%D0%BE%D0%B8%D0%B7%D0%B2%D0%B5%D0%B4%D0%B5%D0%BD%D0%B8%D0%B5.md.html">векторного произведения</a> - вектор. А результат скалярного произведения - число (скаляр).</p>
+<h2>Первый способ вычисления (алгебраическое определение)</h2>
+<p>Это основной метод вычисления скалярного произведения в программировании, так как он очень быстрый. Просто складываем попарные произведения соответствующих координат:</p>
+<ul>
+<li>Для 2D-вектора: <code>\( \overrightarrow{a} \cdot  \overrightarrow{b} =  a_{x} \cdot b_{x} + a_{y} \cdot b_{y} \)</code></li>
+<li>Для 3D-вектора: <code>\( \overrightarrow{a} \cdot  \overrightarrow{b} =  a_{x} \cdot b_{x} + a_{y} \cdot b_{y} + a_{z} \cdot b_{z} \)</code></li>
+</ul>
+<h2>Второй способ вычисления (геометрическое определение)</h2>
+<p><code>\( \overrightarrow{a} \cdot  \overrightarrow{b} = \left| a \right| \cdot \left| b \right| \cdot cos \, \alpha \)</code> - произведение длин векторов и косинуса угла между ними.
+Эта формула полезна своими следствиями.</p>
+<ol>
+<li>Скалярное произведение вектора на самого себя равно квадрату его длины:
+<code>\( \overrightarrow{a} \cdot  \overrightarrow{a} = \left| a \right| \cdot \left| a \right| \cdot cos \, 0 = \left| a \right| ^{2} \cdot 1 = \left| a \right| ^{2} \)</code>.<br>
+Это полезно при сравнении расстояний, ведь можно вместо расстояний сравнивать квадраты расстояний, не тратя вычислительные ресурсы на извлечение корней (обычно это тяжелая операция).
+Естественно, само скалярное произведение вычисляется первым способом: <code>\( \overrightarrow{a} \cdot  \overrightarrow{a} = a_{x} \cdot a_{x} + a_{y} \cdot a_{y} = a_{x} ^{2} + a_{y} ^{2} \)</code>.</li>
+</ol>
+<details><summary>По старинке.</summary>
+Воспользуемся теоремой Пифагора (квадрат гипотенузы равен сумме квадратов катетов) и получим тот же результат: \( a_{x} ^{2} + a_{y} ^{2} = \left| a \right| ^{2} \)
+<br><img src='Скалярное произведение 1.svg'>
+</details>
+<ol start="2">
+<li>Скалярное произведение вектора на единичный вектор равно длине проекции:
+<code>\( \overrightarrow{a} \cdot  \overrightarrow{n} = \left| a \right| \cdot 1 \cdot cos \, \alpha = \left| a \right| \cdot cos \, \alpha \)</code>.
+Таким образом легко вычислить проекцию вектора на нормаль без всякой тригонометрии.</li>
+</ol>
+<details><summary>Доказательство, что это действительно проекция.</summary>
+Преобразуем предыдущую формулу к виду \( cos \, \alpha =  \frac{\overrightarrow{a} \cdot  \overrightarrow{n}}{\left| a \right|} \).
+По определению, косинус угла - это отношение прилежащего катета к гипотенузе. Таким образом получаем прямоугольный треугольник с углом \( \alpha \),
+прилежащим катетом \( \overrightarrow{a} \cdot  \overrightarrow{n} \) и гипотенузой \( \left| a \right| \).<br>
+<img src='Скалярное произведение 2.svg'>
+</details>
+<ol start="3">
+<li>
+<p>Проекция на любой вектор. Нормализуем и делаем то же самое.</p>
+</li>
+<li>
+<p>Скалярное произведение двух перпендикулярных векторов равно нулю: ... Это позволяет вычислять нормаль для любого вектора.</p>
+</li>
+</ol>
+<p><strong>Теги: математика, векторы</strong></p>
+</body>
+</html>
