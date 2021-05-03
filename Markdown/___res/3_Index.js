@@ -124,7 +124,7 @@ function UpdateContent()
 
         // Относительная ссылка на корневой каталог должна начинаться с '/', но тогда не будет работать локально на компе.
         // Обходим это через вход в папку ___tags и выход из неё
-        contentInnerHTML += "<a href='___tags/../" + article.url + "'>" + article.title + "</a>";
+        contentInnerHTML += "<a href='" + article.url + "'>" + article.title + "</a>";
 
         // Если это не последняя статья, то добавляем разрыв строки
         if (i != filteredArticles.length - 1)
