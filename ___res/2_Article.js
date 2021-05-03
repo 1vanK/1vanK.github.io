@@ -52,3 +52,6 @@ function RunArticleScript()
         strong.innerHTML = newInnerHTML;
     }
 }
+
+
+RunArticleScript();

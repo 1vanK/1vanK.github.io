@@ -122,8 +122,6 @@ function UpdateContent()
     {
         let article = filteredArticles[i];
 
-        // Относительная ссылка на корневой каталог должна начинаться с '/', но тогда не будет работать локально на компе.
-        // Обходим это через вход в папку ___tags и выход из неё
         contentInnerHTML += "<a href='" + article.url + "'>" + article.title + "</a>";
 
         // Если это не последняя статья, то добавляем разрыв строки
@@ -169,3 +167,6 @@ function CheckTags(article, tags)
 
     return true;
 }
+
+
+RunIndexScript();
