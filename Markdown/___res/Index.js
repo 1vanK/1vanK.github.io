@@ -1,36 +1,13 @@
 // Скрипт для главной страницы index.html
 
 
-function RunIndexScript()
-{
-    document.body.innerHTML +=
-    `
-        <div id="header">
-            <strong>Главная страница</strong>
-        </div>
-        
-        <div id="sidebar">
-        </div>
-
-        <div id="content">
-        </div>
-        
-        <div id="footer">
-            <strong>Главная страница</strong>
-        </div> 
-    `;
-
-    InitSidebar();
-    UpdateContent();
-}
-
-
-// Заполняет боковую панель тегами
-function InitSidebar()
+// Заполняет боковую панель тегами. При инциализации один из тегов можно сразу отметить
+function InitSidebar(checkedTag)
 {
     let tags = Object.keys(tagTable);
     let sidebarInnerHTML = "";
 
+    // Кнопки можно создавать как <input> или как <button>.
     // Здесь намеренно не используется <input>, чтобы легче отличать кнопку от флажков
     sidebarInnerHTML += "<button onclick='ResetCheckboxes();'>Сбросить</button><br>";
 
@@ -38,9 +15,11 @@ function InitSidebar()
     {
         let tag = tags[i];
 
-        sidebarInnerHTML +=
-            "<input type='checkbox' onchange='UpdateContent();' >" +
-            "<a href='___tags/" + tag + ".html'>" + tag + "</a>";
+        sidebarInnerHTML += "\n<input type='checkbox' onchange='UpdateContent();'";
+        if (tag === checkedTag)
+            sidebarInnerHTML += " checked";
+        sidebarInnerHTML += ">";
+        sidebarInnerHTML += "<a href='index.html?tag=" + tag + "'>" + tag + "</a>";
 
         // Если это не последний тег, то добавляем разрыв строки
         if (i != tags.length - 1)
@@ -64,10 +43,7 @@ function ResetCheckboxes()
     let checkboxes = GetCheckboxes();
 
     for (let i = 0; i < checkboxes.length; i++)
-    {
-        if (checkboxes[i].checked)
-            checkboxes[i].checked = false;
-    }
+        checkboxes[i].checked = false;
 
     UpdateContent();
 }
@@ -87,9 +63,7 @@ function UpdateContent()
             selectedTags.push(tags[i]);
     }
 
-    const helpMessage =
-        "Используйте флажки на левой панели для фильтрации статей." +
-        "<p>Используйте ссылки на левой панели для перехода на страницы тегов.";
+    const helpMessage = "Используйте флажки и ссылки на левой панели для фильтрации статей по тегам.";
 
     if (selectedTags.length == 0)
     {
@@ -133,7 +107,7 @@ function UpdateContent()
 }
 
 
-// Функция проверяет, есть ли статья в массиве
+// Проверяет, есть ли статья в массиве
 function Exists(array, article)
 {
     for (let i = 0; i < array.length; i++)
@@ -146,7 +120,7 @@ function Exists(array, article)
 }
 
 
-// Функция проверяет, есть ли у статьи определенный тег
+// Проверяет, есть ли у статьи определенный тег
 function CheckTag(article, tag)
 {
     // Список статей с данным тегом
@@ -156,7 +130,7 @@ function CheckTag(article, tag)
 }
 
 
-// Функция проверяет, есть ли у статьи все требуемые теги
+// Проверяет, есть ли у статьи все требуемые теги
 function CheckTags(article, tags)
 {
     for (let i = 0; i < tags.length; i++)
@@ -169,4 +143,17 @@ function CheckTags(article, tags)
 }
 
 
-RunIndexScript();
+{
+    // Создаём элементы
+    document.body.innerHTML += "<div id='sidebar'/></div><div id='content'/></div>";
+    PrependHeader();
+    AppendFooter();
+
+    // Можно задать один тег при открытии страницы index.html?tag=тег
+    // https://developer.mozilla.org/ru/docs/Web/API/Location
+    let params = new URLSearchParams(window.location.search);
+    let checkedTag = params.get("tag");
+
+    InitSidebar(checkedTag);
+    UpdateContent();
+}
