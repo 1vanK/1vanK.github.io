@@ -2,36 +2,78 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SpriteBatch WebGL2 + Virtual Resolution (Letterbox/Pillarbox)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>SpriteBatch WebGL2 + Virtual Resolution + Touch Controls</title>
     <style>
-        body, html { margin: 0; padding: 0; overflow: hidden; background: #000; font-family: monospace; color: #e6edf3; user-select: none; }
-        canvas { display: block; width: 100vw; height: 100vh; }
-        #ui {
-            position: absolute; top: 12px; left: 12px; background: rgba(13, 17, 23, 0.92);
-            padding: 14px 18px; border-radius: 8px; border: 1px solid #30363d;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.6); line-height: 1.6; font-size: 13px; pointer-events: none;
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background: #000;
+            font-family: monospace; color: #e6edf3;
+            user-select: none; -webkit-user-select: none;
+            touch-action: none;
         }
+        /* Фиксированный размер ровно по видимой области без растяжения от 100vh */
+        canvas {
+            position: fixed; inset: 0;
+            width: 100%; height: 100%;
+            display: block; touch-action: none;
+        }
+        #ui-container {
+            position: fixed; top: 10px; left: 10px; right: 10px;
+            display: flex; flex-direction: column; align-items: flex-start;
+            gap: 8px; pointer-events: none; z-index: 10;
+        }
+        #toolbar {
+            display: flex; flex-wrap: wrap; gap: 6px;
+            pointer-events: auto;
+        }
+        .btn {
+            background: rgba(22, 27, 34, 0.92); color: #e6edf3;
+            border: 1px solid #30363d; border-radius: 6px;
+            padding: 8px 12px; font-family: monospace; font-size: 13px;
+            font-weight: bold; cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .btn:active { background: #30363d; border-color: #58a6ff; }
+        .btn.active { border-color: #58a6ff; color: #58a6ff; }
+        #stats-panel {
+            background: rgba(13, 17, 23, 0.92);
+            padding: 12px 16px; border-radius: 8px; border: 1px solid #30363d;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6); line-height: 1.55;
+            font-size: 12px; max-width: 100%; pointer-events: none;
+        }
+        #stats-panel.hidden { display: none; }
         .val { color: #58a6ff; font-weight: bold; }
         .good { color: #3fb950; font-weight: bold; }
         .warn { color: #d29922; font-weight: bold; }
-        .hint { margin-top: 8px; padding-top: 6px; border-top: 1px solid #21262d; color: #8b949e; font-size: 12px; }
-        kbd { background: #21262d; border: 1px solid #30363d; border-radius: 4px; padding: 1px 5px; color: #f0f6fc; }
+        .hint { margin-top: 8px; padding-top: 6px; border-top: 1px solid #21262d; color: #8b949e; font-size: 11px; }
     </style>
 </head>
 <body>
-    <div id="ui">
-        <div>FPS: <span id="fps" class="good">0</span> | Время CPU: <span id="cpu" class="val">0.00</span> мс</div>
-        <div>Спрайтов в кадре: <span id="sprites" class="val">0</span> | Draw Calls: <span id="draws" class="good">1</span></div>
-        <div>Виртуальный холст: <span id="vres" class="warn">...</span> | Viewport: <span id="vp" class="val">...</span></div>
-        <div>Авто-корзины в VRAM: <span id="buckets" class="warn">...</span></div>
-        <div class="hint">
-            🖥️ Нажми <kbd>V</kbd> — переключить виртуальное разрешение (<b>800x450 [16:9]</b> / <b>640x480 [4:3]</b> / <b>Выкл</b>)<br>
-            🕯️ <b>Двигай мышью / пальцем</b> — динамический факел (корректно учитывает черные полосы)<br>
-            🔍 <b>Колесо мыши</b> — Зум камеры | <b>Зажать ЛКМ</b> — Панорама
+    <div id="ui-container">
+        <div id="toolbar">
+            <button id="btn-stats" class="btn active">📊 Статистика</button>
+            <button id="btn-vres" class="btn">🖥️ 800×450 (16:9)</button>
+            <button id="btn-touch-mode" class="btn">👆 1 палец: 🕯️ Факел</button>
+        </div>
+
+        <div id="stats-panel">
+            <div>FPS: <span id="fps" class="good">0</span> | CPU: <span id="cpu" class="val">0.00</span> мс</div>
+            <div>Спрайтов: <span id="sprites" class="val">0</span> | Draw Calls: <span id="draws" class="good">1</span></div>
+            <div>Холст: <span id="vres" class="warn">...</span></div>
+            <div>Viewport: <span id="vp" class="val">...</span></div>
+            <div>VRAM корзины: <span id="buckets" class="warn">...</span></div>
+            <div class="hint">
+                📱 <b>Сенсор:</b> 2 пальца — Зум (щипок) и Панорама камеры | 1 палец — Факел или Камера (переключается кнопкой сверху)<br>
+                🖱️ <b>ПК:</b> Мышь — Факел | Зажать ЛКМ — Камера | Колесо — Зум | Клавиша <b>V</b> — Режим холста | <b>H</b> — Скрыть инфо
+            </div>
         </div>
     </div>
+
     <canvas id="c"></canvas>
+
 <script>
 // ============================================================================
 // 📚 БИБЛИОТЕКА: SpriteBatch (WebGL 2, Virtual Resolution, Auto-Buckets)
@@ -42,7 +84,7 @@ class SpriteBatch {
         this.maxSprites = maxSprites;
         this.maxLayers = gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS);
 
-        // Настройки виртуального разрешения (0 = выключено, используется размер окна)
+        // Виртуальное разрешение (0 = выключено, используется физический размер холста)
         this.virtualWidth = virtualWidth;
         this.virtualHeight = virtualHeight;
         this.viewport = { x: 0, y: 0, width: 1, height: 1, scale: 1.0 };
@@ -65,13 +107,12 @@ class SpriteBatch {
         this._initDummyTextures();
     }
 
-    // Установить или отключить (0, 0) виртуальное разрешение
     setVirtualResolution(width = 0, height = 0) {
         this.virtualWidth = width;
         this.virtualHeight = height;
     }
 
-    // Перевод экранных координат (e.clientX, e.clientY) в виртуальные координаты холста
+    // Точный перевод экранных координат (clientX, clientY) в виртуальные координаты холста
     screenToVirtual(clientX, clientY, out = { x: 0, y: 0 }) {
         const canvas = this.gl.canvas;
         const rect = canvas.getBoundingClientRect();
@@ -82,14 +123,13 @@ class SpriteBatch {
         const resW = this.virtualWidth > 0 ? this.virtualWidth : canvas.width;
         const resH = this.virtualHeight > 0 ? this.virtualHeight : canvas.height;
 
-        // В WebGL vp.y считается снизу, поэтому отступ сверху = canvas.height - vp.y - vp.height
         const topOffset = canvas.height - vp.y - vp.height;
         out.x = (physX - vp.x) * (resW / vp.width);
         out.y = (physY - topOffset) * (resH / vp.height);
         return out;
     }
 
-    // Перевод экранных координат (e.clientX, e.clientY) сразу в мировые координаты с учетом камеры и зума
+    // Перевод экранных координат (clientX, clientY) сразу в мировые координаты
     screenToWorld(clientX, clientY, out = { x: 0, y: 0 }) {
         this.screenToVirtual(clientX, clientY, out);
         const resW = this.virtualWidth > 0 ? this.virtualWidth : this.gl.canvas.width;
@@ -99,7 +139,6 @@ class SpriteBatch {
         return out;
     }
 
-    // Внутренний расчет прямоугольника отрисовки и черных полос (Letterbox / Pillarbox)
     _applyViewport() {
         const gl = this.gl;
         const physW = gl.canvas.width;
@@ -120,14 +159,14 @@ class SpriteBatch {
 
             gl.enable(gl.SCISSOR_TEST);
 
-            // Если есть полосы по бокам (Pillarbox) — заливаем их чисто черным
+            // Черные полосы по бокам (Pillarbox)
             if (vpX > 0) {
                 gl.scissor(0, 0, vpX, physH);
                 gl.clearBufferfv(gl.COLOR, 0, this._blackBarColor);
                 gl.scissor(vpX + vpW, 0, physW - (vpX + vpW), physH);
                 gl.clearBufferfv(gl.COLOR, 0, this._blackBarColor);
             }
-            // Если есть полосы сверху и снизу (Letterbox) — заливаем их чисто черным
+            // Черные полосы сверху и снизу (Letterbox)
             if (vpY > 0) {
                 gl.scissor(0, 0, physW, vpY);
                 gl.clearBufferfv(gl.COLOR, 0, this._blackBarColor);
@@ -135,7 +174,6 @@ class SpriteBatch {
                 gl.clearBufferfv(gl.COLOR, 0, this._blackBarColor);
             }
 
-            // Ограничиваем область рендеринга спрайтов строго виртуальным холстом
             gl.viewport(vpX, vpY, vpW, vpH);
             gl.scissor(vpX, vpY, vpW, vpH);
         } else {
@@ -290,7 +328,6 @@ class SpriteBatch {
         gl.useProgram(this.program);
         gl.bindVertexArray(this.vao);
 
-        // Если задано виртуальное разрешение — передаем его в шейдер, иначе реальный размер холста
         const resW = this.virtualWidth > 0 ? this.virtualWidth : gl.canvas.width;
         const resH = this.virtualHeight > 0 ? this.virtualHeight : gl.canvas.height;
         gl.uniform2f(this.uRes, resW, resH);
@@ -467,30 +504,59 @@ class SpriteBatch {
 }
 
 // ============================================================================
-// 🎮 ПРИМЕР ИСПОЛЬЗОВАНИЯ С ВИРТУАЛЬНЫМ РАЗРЕШЕНИЕМ
+// 🎮 ИНИЦИАЛИЗАЦИЯ СЦЕНЫ И СЕНСОРНОГО УПРАВЛЕНИЯ
 // ============================================================================
 const canvas = document.getElementById('c');
 const gl = canvas.getContext('webgl2', { alpha: false, antialias: false });
 gl.enable(gl.BLEND);
 gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
-// Создаем SpriteBatch с виртуальным разрешением 800x450 (16:9)
 const batch = new SpriteBatch(gl, 100000, 800, 450);
 
-// Переключение режимов виртуального разрешения по клавише V
+// Режимы виртуального разрешения (добавлен портретный 450x800 для телефонов)
 const modes = [
-    { w: 800, h: 450, label: '800x450 (16:9)' },
-    { w: 640, h: 480, label: '640x480 (4:3)' },
-    { w: 0,   h: 0,   label: 'Выкл (Родное окно)' }
+    { w: 800, h: 450, label: '800×450 (16:9)' },
+    { w: 640, h: 480, label: '640×480 (4:3)' },
+    { w: 450, h: 800, label: '450×800 (9:16)' },
+    { w: 0,   h: 0,   label: 'Выкл (Весь экран)' }
 ];
 let currentMode = 0;
+
+// Элементы управления UI
+const btnStats = document.getElementById('btn-stats');
+const btnVres = document.getElementById('btn-vres');
+const btnTouchMode = document.getElementById('btn-touch-mode');
+const statsPanel = document.getElementById('stats-panel');
+
+let touchSingleFingerPan = false; // false = 1 палец двигает факел, true = 1 палец двигает камеру
+
+function toggleStats() {
+    const isHidden = statsPanel.classList.toggle('hidden');
+    btnStats.classList.toggle('active', !isHidden);
+}
+function cycleVirtualRes() {
+    currentMode = (currentMode + 1) % modes.length;
+    batch.setVirtualResolution(modes[currentMode].w, modes[currentMode].h);
+    btnVres.textContent = `🖥️ ${modes[currentMode].label}`;
+}
+function toggleTouchMode() {
+    touchSingleFingerPan = !touchSingleFingerPan;
+    btnTouchMode.textContent = touchSingleFingerPan
+        ? '👆 1 палец: 🖐️ Камера'
+        : '👆 1 палец: 🕯️ Факел';
+    btnTouchMode.classList.toggle('active', touchSingleFingerPan);
+}
+
+btnStats.addEventListener('click', toggleStats);
+btnVres.addEventListener('click', cycleVirtualRes);
+btnTouchMode.addEventListener('click', toggleTouchMode);
+
 window.addEventListener('keydown', e => {
-    if (e.code === 'KeyV') {
-        currentMode = (currentMode + 1) % modes.length;
-        batch.setVirtualResolution(modes[currentMode].w, modes[currentMode].h);
-    }
+    if (e.code === 'KeyV') cycleVirtualRes();
+    if (e.code === 'KeyH') toggleStats();
 });
 
+// Генерация тестовых текстур
 function makeImage(w, h, drawFn) {
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
@@ -542,7 +608,7 @@ const gearTex = makeImage(46, 46, (ctx) => {
 });
 
 document.getElementById('buckets').textContent = batch.buckets
-    .map(b => `${b.size}x${b.size} (${b.count}/${b.capacity} сл.)`).join(', ');
+    .map(b => `${b.size}×${b.size} (${b.count}/${b.capacity})`).join(', ');
 
 const MAP_W = 100, MAP_H = 70;
 const walls = new Uint8Array(MAP_W * MAP_H);
@@ -583,22 +649,30 @@ function sampleLightColor(wx, wy) {
 
 const cornerColors = new Uint32Array((MAP_W + 1) * (MAP_H + 1));
 let camX = (MAP_W * 16) / 2, camY = (MAP_H * 16) / 2, zoom = 1.0;
-let isDragging = false, lastVirt = { x: 0, y: 0 }, curVirt = { x: 0, y: 0 };
-let mouseScreenX = window.innerWidth / 2, mouseScreenY = window.innerHeight / 2;
 
-window.addEventListener('wheel', e => {
+// ============================================================================
+// 🖱️ & 📱 УПРАВЛЕНИЕ МЫШЬЮ И СЕНСОРНЫМ ЭКРАНОМ
+// ============================================================================
+let isMouseDragging = false;
+let lastVirt = { x: 0, y: 0 }, curVirt = { x: 0, y: 0 };
+let pointerScreenX = window.innerWidth / 2, pointerScreenY = window.innerHeight / 2;
+
+// Мышь (ПК)
+canvas.addEventListener('wheel', e => {
+    e.preventDefault();
     zoom *= (e.deltaY < 0) ? 1.15 : 0.87;
     zoom = Math.max(0.25, Math.min(4.0, zoom));
-});
-window.addEventListener('mousedown', e => {
-    isDragging = true;
+}, { passive: false });
+
+canvas.addEventListener('mousedown', e => {
+    isMouseDragging = true;
+    pointerScreenX = e.clientX; pointerScreenY = e.clientY;
     batch.screenToVirtual(e.clientX, e.clientY, lastVirt);
 });
-window.addEventListener('mouseup', () => isDragging = false);
+window.addEventListener('mouseup', () => isMouseDragging = false);
 window.addEventListener('mousemove', e => {
-    mouseScreenX = e.clientX; mouseScreenY = e.clientY;
-    if (isDragging) {
-        // Панорамирование также работает в виртуальных координатах!
+    pointerScreenX = e.clientX; pointerScreenY = e.clientY;
+    if (isMouseDragging) {
         batch.screenToVirtual(e.clientX, e.clientY, curVirt);
         camX -= (curVirt.x - lastVirt.x) / zoom;
         camY -= (curVirt.y - lastVirt.y) / zoom;
@@ -606,33 +680,99 @@ window.addEventListener('mousemove', e => {
         lastVirt.y = curVirt.y;
     }
 });
-window.addEventListener('touchmove', e => {
-    if (e.touches.length === 1) {
-        mouseScreenX = e.touches[0].clientX;
-        mouseScreenY = e.touches[0].clientY;
-    }
-});
 
+// Сенсорный экран (Смартфоны / Планшеты): 1 палец + 2 пальца (Pinch-to-Zoom и панорама)
+let lastPinchDist = 0;
+
+canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+        const t = e.touches[0];
+        pointerScreenX = t.clientX;
+        pointerScreenY = t.clientY;
+        batch.screenToVirtual(t.clientX, t.clientY, lastVirt);
+    } else if (e.touches.length >= 2) {
+        const t0 = e.touches[0], t1 = e.touches[1];
+        const cx = (t0.clientX + t1.clientX) * 0.5;
+        const cy = (t0.clientY + t1.clientY) * 0.5;
+        batch.screenToVirtual(cx, cy, lastVirt);
+        lastPinchDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+        const t = e.touches[0];
+        if (touchSingleFingerPan) {
+            // Режим камеры одним пальцем
+            batch.screenToVirtual(t.clientX, t.clientY, curVirt);
+            camX -= (curVirt.x - lastVirt.x) / zoom;
+            camY -= (curVirt.y - lastVirt.y) / zoom;
+            lastVirt.x = curVirt.x;
+            lastVirt.y = curVirt.y;
+        } else {
+            // Режим факела одним пальцем
+            pointerScreenX = t.clientX;
+            pointerScreenY = t.clientY;
+        }
+    } else if (e.touches.length >= 2) {
+        // 2 пальца всегда двигают камеру и масштабируют (Pinch-to-Zoom)
+        const t0 = e.touches[0], t1 = e.touches[1];
+        const cx = (t0.clientX + t1.clientX) * 0.5;
+        const cy = (t0.clientY + t1.clientY) * 0.5;
+        const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+
+        batch.screenToVirtual(cx, cy, curVirt);
+        camX -= (curVirt.x - lastVirt.x) / zoom;
+        camY -= (curVirt.y - lastVirt.y) / zoom;
+        lastVirt.x = curVirt.x;
+        lastVirt.y = curVirt.y;
+
+        if (lastPinchDist > 0 && dist > 0) {
+            zoom = Math.max(0.25, Math.min(4.0, zoom * (dist / lastPinchDist)));
+        }
+        lastPinchDist = dist;
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+        // Плавный переход с 2 пальцев обратно на 1 палец без рывка камеры
+        batch.screenToVirtual(e.touches[0].clientX, e.touches[0].clientY, lastVirt);
+    }
+    if (e.touches.length < 2) {
+        lastPinchDist = 0;
+    }
+}, { passive: false });
+
+// ============================================================================
+// 🔄 ГЛАВНЫЙ ЦИКЛ РЕНДЕРИНГА
+// ============================================================================
 let frames = 0, lastFpsTime = performance.now(), cpuAccum = 0;
 const mouseWorld = { x: 0, y: 0 };
 
 function loop(time) {
-    if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+    // Точная синхронизация физического буфера WebGL с реальным CSS-размером и DPR экрана
+    const dpr = window.devicePixelRatio || 1;
+    const displayW = Math.max(1, Math.round(canvas.clientWidth * dpr));
+    const displayH = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    if (canvas.width !== displayW || canvas.height !== displayH) {
+        canvas.width = displayW;
+        canvas.height = displayH;
     }
+
     const t0 = performance.now();
     const tSec = time * 0.001;
 
-    // Задаем темно-синий фон мира (черные полосы по краям останутся чисто черными #000000!)
     gl.clearColor(0.08, 0.11, 0.18, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     batch.setCamera(camX, camY, zoom);
-    batch.begin(); // <-- Внутри begin() автоматически рассчитывается viewport и черные полосы
+    batch.begin();
 
-    // Переводим координаты мыши в мировые через встроенный метод SpriteBatch
-    batch.screenToWorld(mouseScreenX, mouseScreenY, mouseWorld);
+    batch.screenToWorld(pointerScreenX, pointerScreenY, mouseWorld);
     lights[0].x = mouseWorld.x;
     lights[0].y = mouseWorld.y;
 
@@ -707,7 +847,7 @@ function loop(time) {
         document.getElementById('draws').textContent = batch.drawCalls;
         document.getElementById('vres').textContent = modes[currentMode].label;
         const vp = batch.viewport;
-        document.getElementById('vp').textContent = `${vp.width}x${vp.height} (offset: ${vp.x},${vp.y} | scale: ${vp.scale.toFixed(2)}x)`;
+        document.getElementById('vp').textContent = `${vp.width}×${vp.height} (scale: ${vp.scale.toFixed(2)}x)`;
         frames = 0; cpuAccum = 0; lastFpsTime = time;
     }
     requestAnimationFrame(loop);
