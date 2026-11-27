@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>WebGL 2 Hardcore Test: 3,328 Unique Textures + Animated Tiles</title>
+    <style>
+        body, html { margin: 0; padding: 0; overflow: hidden; background: #0d1117; font-family: monospace; color: #fff; user-select: none; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #ui {
+            position: absolute; top: 12px; left: 12px; background: rgba(15, 20, 28, 0.92);
+            padding: 14px 18px; border-radius: 8px; border: 1px solid #30363d;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6); line-height: 1.6; font-size: 13px;
+        }
+        .val { color: #58a6ff; font-weight: bold; }
+        .good { color: #3fb950; font-weight: bold; }
+        .warn { color: #d29922; font-weight: bold; }
+        button {
+            margin-top: 8px; margin-right: 6px; padding: 6px 12px; background: #238636;
+            color: #fff; border: none; border-radius: 4px; cursor: pointer; font-family: inherit; font-weight: bold;
+        }
+        button:hover { background: #2ea043; }
+        button.secondary { background: #30363d; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div>FPS: <span id="fps" class="good">0</span></div>
+        <div>Уникальных текстур в VRAM: <span class="warn">3 328 шт.</span> (2048 + 1024 + 256)</div>
+        <div>Спрайтов в кадре: <span id="count" class="val">30 000</span> (100% анимированные тайлы!)</div>
+        <div>Время CPU (JS цикл): <span id="cpu" class="val">0.00</span> мс</div>
+        <div>Зум камеры: <span id="zoom" class="val">1.00x</span> (Приблизь до 4x, чтобы увидеть номера текстур!)</div>
+        <div>
+            <button id="btnLod">LOD (Mipmaps): ВКЛ</button>
+            <button id="btnCount" class="secondary">+20 000 спрайтов</button>
+        </div>
+    </div>
+    <canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, powerPreference: "high-performance" });
+
+const vsSource = `#version 300 es
+layout(location = 0) in vec2 a_quad;
+layout(location = 1) in vec4 a_rect;
+layout(location = 2) in vec3 a_texInfo;
+
+uniform vec2 u_resolution;
+uniform vec2 u_camera;
+uniform float u_zoom;
+
+out vec2 v_uv;
+flat out int v_bucket;
+flat out float v_layer;
+out float v_alpha;
+
+void main() {
+    vec2 worldPos = a_rect.xy + a_quad * a_rect.zw;
+    vec2 viewPos = (worldPos - u_camera) * u_zoom + u_resolution * 0.5;
+    vec2 clipSpace = (viewPos / u_resolution) * 2.0 - 1.0;
+    gl_Position = vec4(clipSpace.x, -clipSpace.y, 0.0, 1.0);
+
+    v_uv = a_quad;
+    v_bucket = int(a_texInfo.x);
+    v_layer = a_texInfo.y;
+    v_alpha = a_texInfo.z;
+}`;
+
+// Никакой перекраски в шейдере! Только чистое чтение пикселей из текстуры:
+const fsSource = `#version 300 es
+precision highp float;
+precision highp sampler2DArray;
+
+in vec2 v_uv;
+flat in int v_bucket;
+flat in float v_layer;
+out vec4 outColor;
+in float v_alpha;
+
+uniform sampler2DArray u_bucket16; // 2048 уникальных картинок 16x16
+uniform sampler2DArray u_bucket32; // 1024 уникальных картинок 32x32
+uniform sampler2DArray u_bucket64; // 256 уникальных картинок 64x64
+
+void main() {
+    vec4 color;
+    if (v_bucket == 0)      color = texture(u_bucket16, vec3(v_uv, v_layer), -0.35);
+    else if (v_bucket == 1) color = texture(u_bucket32, vec3(v_uv, v_layer), -0.35);
+    else                    color = texture(u_bucket64, vec3(v_uv, v_layer), -0.35);
+    if (color.a < 0.01) discard;
+    outColor = color * v_alpha;
+}`;
+
+function createShader(type, src) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, createShader(gl.VERTEX_SHADER, vsSource));
+gl.attachShader(prog, createShader(gl.FRAGMENT_SHADER, fsSource));
+gl.linkProgram(prog); gl.useProgram(prog);
+
+gl.uniform1i(gl.getUniformLocation(prog, "u_bucket16"), 0);
+gl.uniform1i(gl.getUniformLocation(prog, "u_bucket32"), 1);
+gl.uniform1i(gl.getUniformLocation(prog, "u_bucket64"), 2);
+
+const uRes = gl.getUniformLocation(prog, "u_resolution");
+const uCam = gl.getUniformLocation(prog, "u_camera");
+const uZoom = gl.getUniformLocation(prog, "u_zoom");
+
+gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+
+function createBucket(unit, size, layersCount, generatorFn) {
+    const tex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
+
+    const levels = Math.floor(Math.log2(size)) + 1;
+    gl.texStorage3D(gl.TEXTURE_2D_ARRAY, levels, gl.RGBA8, size, size, layersCount);
+
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = offCanvas.height = size;
+    const ctx = offCanvas.getContext('2d');
+
+    for (let i = 0; i < layersCount; i++) {
+        ctx.clearRect(0, 0, size, size);
+        generatorFn(ctx, i, size);
+        gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, i, size, size, 1, gl.RGBA, gl.UNSIGNED_BYTE, offCanvas);
+    }
+
+    gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    return tex;
+}
+
+// 1. Генерируем 2048 РАЗНЫХ тайлов 16x16 (Кирпичи, волны лавы, руды, диагонали, механизмы)
+const tex16 = createBucket(0, 16, 2048, (ctx, i, s) => {
+    const hue = (i * 19) % 360;
+    const isWall = i >= 1024;
+    ctx.fillStyle = `hsl(${hue}, ${isWall ? 35 : 70}%, ${isWall ? 20 : 40}%)`;
+    ctx.fillRect(0, 0, s, s);
+
+    // Рисуем уникальный паттерн в зависимости от индекса i
+    ctx.fillStyle = `hsl(${(hue + 60)%360}, 85%, ${isWall ? 35 : 65}%)`;
+    const patternType = i % 4;
+    const animShift = (i % 8); // Сдвиг фазы для анимации лавы/воды
+    if (patternType === 0) { // Волна жидкости / Лава
+        for(let x=0; x<16; x+=2) ctx.fillRect(x, 4 + Math.floor(Math.sin((x+animShift)*0.8)*3), 2, 4);
+    } else if (patternType === 1) { // Кирпичная кладка со сдвигом
+        ctx.fillRect(0, 7, 16, 2);
+        ctx.fillRect((i*3)%14, 0, 2, 7);
+        ctx.fillRect((i*7)%14, 9, 2, 7);
+    } else if (patternType === 2) { // Кристаллы / Руда
+        ctx.fillRect(2 + (i%5), 2 + ((i>>2)%5), 4, 4);
+        ctx.fillRect(8 + (i%4), 8 + ((i>>3)%4), 5, 3);
+    } else { // Шестеренка / Диагональ
+        ctx.beginPath(); ctx.moveTo(0, (i%16)); ctx.lineTo(16, 16-(i%16));
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.strokeRect(0.5, 0.5, 15, 15);
+});
+
+// 2. Генерируем 1024 РАЗНЫХ спрайта 32x32 (Разные фигуры + ВЫЖЖЕННЫЙ НОМЕР ТЕКСТУРЫ 0..1023!)
+const tex32 = createBucket(1, 32, 1024, (ctx, i, s) => {
+    const hue = (i * 41) % 360;
+    ctx.fillStyle = `hsl(${hue}, 80%, 45%)`;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+
+    // Разная геометрическая форма у каждого спрайта (круг, ромб, шестиугольник, звезда, щит)
+    const sides = 3 + (i % 5);
+    ctx.beginPath();
+    for (let k = 0; k < sides; k++) {
+        const a = (k / sides) * Math.PI * 2 + (i * 0.2);
+        const r = (k % 2 === 0 || sides < 5) ? 14 : 8;
+        const px = 16 + Math.cos(a) * r, py = 16 + Math.sin(a) * r;
+        k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+
+    // Печатаем уникальный номер текстуры прямо на спрайте!
+    ctx.fillStyle = '#000';
+    ctx.fillRect(3, 10, 26, 11);
+    ctx.fillStyle = '#ffeb3b';
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('#' + i, 16, 19);
+});
+
+// 3. Генерируем 256 РАЗНЫХ крупных объектов 64x64 (Башни, деревья, кристаллы с номерами)
+const tex64 = createBucket(2, 64, 256, (ctx, i, s) => {
+    const hue = (i * 23) % 360;
+    ctx.fillStyle = `hsl(${hue}, 60%, 30%)`;
+    // Уникальная форма кроны/кристалла
+    const branches = 4 + (i % 7);
+    ctx.beginPath();
+    for (let k = 0; k < branches * 2; k++) {
+        const a = (k / (branches * 2)) * Math.PI * 2;
+        const r = (k % 2 === 0) ? 28 : 14 + (i % 10);
+        const px = 32 + Math.cos(a) * r, py = 32 + Math.sin(a) * r;
+        k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = `hsl(${hue}, 90%, 70%)`; ctx.stroke();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ID:' + i, 32, 36);
+});
+
+// Инстанс-буфер
+const MAX_SPRITES = 150000;
+const FLOATS_PER_SPRITE = 7;
+const instanceData = new Float32Array(MAX_SPRITES * FLOATS_PER_SPRITE);
+let spriteCount = 0;
+
+const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+const quadVBO = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quadVBO);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0, 1,0, 0,1, 0,1, 1,0, 1,1]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+const instVBO = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, instVBO);
+gl.bufferData(gl.ARRAY_BUFFER, instanceData.byteLength, gl.DYNAMIC_DRAW);
+const stride = FLOATS_PER_SPRITE * 4;
+gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, stride, 0); gl.vertexAttribDivisor(1, 1);
+gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, stride, 16); gl.vertexAttribDivisor(2, 1);
+
+function draw(bucket, layer, x, y, w, h, alpha = 1.0) {
+    if (spriteCount >= MAX_SPRITES) return;
+    let idx = spriteCount * FLOATS_PER_SPRITE;
+    instanceData[idx] = x; instanceData[idx+1] = y; instanceData[idx+2] = w; instanceData[idx+3] = h;
+    instanceData[idx+4] = bucket; instanceData[idx+5] = layer; instanceData[idx+6] = alpha;
+    spriteCount++;
+}
+
+// Карта мира (использует все 2048 слоев!)
+const MAP_W = 120, MAP_H = 85;
+const bgWalls = new Uint16Array(MAP_W * MAP_H);
+const fgBlocks = new Uint16Array(MAP_W * MAP_H);
+
+for (let y = 0; y < MAP_H; y++) {
+    for (let x = 0; x < MAP_W; x++) {
+        const idx = y * MAP_W + x;
+        bgWalls[idx] = 1024 + ((x * 7 + y * 13) % 1016);
+        const cave = Math.sin(x * 0.15) * Math.cos(y * 0.15) > 0.25;
+        fgBlocks[idx] = cave ? 65535 : ((x * 11 + y * 29) % 1016);
+    }
+}
+
+let dynamicCount = 10000;
+let camX = (MAP_W * 16) / 2, camY = (MAP_H * 16) / 2, zoom = 1.5; // Старт чуть ближе, чтобы было видно детали
+let isDragging = false, lastX = 0, lastY = 0;
+
+window.addEventListener('wheel', e => {
+    zoom *= (e.deltaY < 0) ? 1.15 : 0.87;
+    zoom = Math.max(0.15, Math.min(5.0, zoom));
+    document.getElementById('zoom').textContent = zoom.toFixed(2) + 'x';
+});
+window.addEventListener('mousedown', e => { if(e.target === canvas) { isDragging = true; lastX = e.clientX; lastY = e.clientY; }});
+window.addEventListener('mouseup', () => isDragging = false);
+window.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    camX -= (e.clientX - lastX) / zoom; camY -= (e.clientY - lastY) / zoom;
+    lastX = e.clientX; lastY = e.clientY;
+});
+
+let lodEnabled = true;
+document.getElementById('btnLod').addEventListener('click', e => {
+    lodEnabled = !lodEnabled;
+    e.target.textContent = `LOD (Mipmaps): ${lodEnabled ? 'ВКЛ' : 'ВЫКЛ (Рябь!)'}`;
+    e.target.style.background = lodEnabled ? '#238636' : '#da3633';
+    const filter = lodEnabled ? gl.LINEAR_MIPMAP_LINEAR : gl.NEAREST;
+    [tex16, tex32, tex64].forEach((t, i) => {
+        gl.activeTexture(gl.TEXTURE0 + i);
+        gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, filter);
+    });
+});
+document.getElementById('btnCount').addEventListener('click', () => {
+    dynamicCount = (dynamicCount + 20000) % 100000;
+});
+
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+let frames = 0, lastFpsTime = performance.now(), cpuAccum = 0;
+
+function render(time) {
+    if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
+        canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+        gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+
+    const t0 = performance.now();
+    spriteCount = 0;
+
+    // Кадр анимации тайлов (как мерцание лавы и воды в Terraria — меняется каждые 100 мс)
+    const animFrame = Math.floor(time / 100) % 8;
+
+    // СЛОЙ 1: Анимированные задние стены (используются слои 1024..2047)
+    for (let y = 0; y < MAP_H; y++) {
+        for (let x = 0; x < MAP_W; x++) {
+            const baseTile = bgWalls[y * MAP_W + x];
+            draw(0, baseTile + animFrame, x * 16, y * 16, 16, 16, 1.0);
+        }
+    }
+
+    // СЛОЙ 2: Анимированные передние блоки (используются слои 0..1023)
+    for (let y = 0; y < MAP_H; y++) {
+        for (let x = 0; x < MAP_W; x++) {
+            const block = fgBlocks[y * MAP_W + x];
+            if (block !== 65535) {
+                draw(0, block + animFrame, x * 16, y * 16, 16, 16, 1.0);
+            }
+        }
+    }
+
+    // СЛОЙ 3: 2 000 крупных объектов 64x64 (Все 256 уникальных текстур с ID)
+    for (let i = 0; i < 2000; i++) {
+        const tx = (i * 97) % (MAP_W * 16);
+        const ty = (i * 53) % (MAP_H * 16);
+        draw(2, i % 256, tx - 24, ty - 48, 64, 64, 1.0);
+    }
+
+    // СЛОЙ 4: Мобы и снаряды 32x32 (Все 1024 уникальных текстуры с номерами #0..#1023!)
+    const tSec = time * 0.001;
+    for (let i = 0; i < dynamicCount; i++) {
+        const mx = ((i * 31) % (MAP_W * 16)) + Math.cos(tSec * 2 + i) * 24;
+        const my = ((i * 17) % (MAP_H * 16)) + Math.sin(tSec * 2 + i) * 24;
+        draw(1, i % 1024, mx, my, 32, 32, (i % 3 === 0) ? 0.75 : 1.0);
+    }
+
+    gl.clearColor(0.05, 0.07, 0.1, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    gl.uniform2f(uRes, canvas.width, canvas.height);
+    gl.uniform2f(uCam, camX, camY);
+    gl.uniform1f(uZoom, zoom);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, instVBO);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, instanceData.subarray(0, spriteCount * FLOATS_PER_SPRITE));
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, spriteCount);
+
+    const cpuTime = performance.now() - t0;
+    cpuAccum += cpuTime;
+    frames++;
+
+    if (time - lastFpsTime >= 500) {
+        document.getElementById('fps').textContent = Math.round((frames * 1000) / (time - lastFpsTime));
+        document.getElementById('count').textContent = spriteCount.toLocaleString('ru-RU');
+        document.getElementById('cpu').textContent = (cpuAccum / frames).toFixed(2);
+        frames = 0; cpuAccum = 0; lastFpsTime = time;
+    }
+
+    requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
+
