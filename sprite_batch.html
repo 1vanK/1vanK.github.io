@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>SpriteBatch WebGL2 + Virtual Resolution + Touch Controls</title>
+    <title>SpriteBatch WebGL2 + Virtual Resolution + Rotated Sprite Lighting</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body, html {
@@ -13,7 +13,6 @@
             user-select: none; -webkit-user-select: none;
             touch-action: none;
         }
-        /* Фиксированный размер ровно по видимой области без растяжения от 100vh */
         canvas {
             position: fixed; inset: 0;
             width: 100%; height: 100%;
@@ -66,8 +65,9 @@
             <div>Viewport: <span id="vp" class="val">...</span></div>
             <div>VRAM корзины: <span id="buckets" class="warn">...</span></div>
             <div class="hint">
-                📱 <b>Сенсор:</b> 2 пальца — Зум (щипок) и Панорама камеры | 1 палец — Факел или Камера (переключается кнопкой сверху)<br>
-                🖱️ <b>ПК:</b> Мышь — Факел | Зажать ЛКМ — Камера | Колесо — Зум | Клавиша <b>V</b> — Режим холста | <b>H</b> — Скрыть инфо
+                ⚔️ <b>Вращающиеся мечи и шестеренки</b> теперь освещаются в реальных мировых координатах своих 4 повернутых вершин!<br>
+                📱 <b>Сенсор:</b> 2 пальца — Зум и Камера | 1 палец — Факел или Камера (кнопка сверху)<br>
+                🖱️ <b>ПК:</b> Мышь — Факел | Зажать ЛКМ — Камера | Колесо — Зум | <b>V</b> — Режим холста | <b>H</b> — Скрыть инфо
             </div>
         </div>
     </div>
@@ -84,13 +84,11 @@ class SpriteBatch {
         this.maxSprites = maxSprites;
         this.maxLayers = gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS);
 
-        // Виртуальное разрешение (0 = выключено, используется физический размер холста)
         this.virtualWidth = virtualWidth;
         this.virtualHeight = virtualHeight;
         this.viewport = { x: 0, y: 0, width: 1, height: 1, scale: 1.0 };
         this._blackBarColor = new Float32Array([0.0, 0.0, 0.0, 1.0]);
 
-        // 16x 32-битных слов (64 байта) на 1 спрайт
         this.STRIDE_WORDS = 16;
         this.rawBuffer = new ArrayBuffer(maxSprites * this.STRIDE_WORDS * 4);
         this.f32 = new Float32Array(this.rawBuffer);
@@ -112,7 +110,6 @@ class SpriteBatch {
         this.virtualHeight = height;
     }
 
-    // Точный перевод экранных координат (clientX, clientY) в виртуальные координаты холста
     screenToVirtual(clientX, clientY, out = { x: 0, y: 0 }) {
         const canvas = this.gl.canvas;
         const rect = canvas.getBoundingClientRect();
@@ -129,7 +126,6 @@ class SpriteBatch {
         return out;
     }
 
-    // Перевод экранных координат (clientX, clientY) сразу в мировые координаты
     screenToWorld(clientX, clientY, out = { x: 0, y: 0 }) {
         this.screenToVirtual(clientX, clientY, out);
         const resW = this.virtualWidth > 0 ? this.virtualWidth : this.gl.canvas.width;
@@ -159,14 +155,12 @@ class SpriteBatch {
 
             gl.enable(gl.SCISSOR_TEST);
 
-            // Черные полосы по бокам (Pillarbox)
             if (vpX > 0) {
                 gl.scissor(0, 0, vpX, physH);
                 gl.clearBufferfv(gl.COLOR, 0, this._blackBarColor);
                 gl.scissor(vpX + vpW, 0, physW - (vpX + vpW), physH);
                 gl.clearBufferfv(gl.COLOR, 0, this._blackBarColor);
             }
-            // Черные полосы сверху и снизу (Letterbox)
             if (vpY > 0) {
                 gl.scissor(0, 0, physW, vpY);
                 gl.clearBufferfv(gl.COLOR, 0, this._blackBarColor);
@@ -513,7 +507,6 @@ gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
 const batch = new SpriteBatch(gl, 100000, 800, 450);
 
-// Режимы виртуального разрешения (добавлен портретный 450x800 для телефонов)
 const modes = [
     { w: 800, h: 450, label: '800×450 (16:9)' },
     { w: 640, h: 480, label: '640×480 (4:3)' },
@@ -522,13 +515,12 @@ const modes = [
 ];
 let currentMode = 0;
 
-// Элементы управления UI
 const btnStats = document.getElementById('btn-stats');
 const btnVres = document.getElementById('btn-vres');
 const btnTouchMode = document.getElementById('btn-touch-mode');
 const statsPanel = document.getElementById('stats-panel');
 
-let touchSingleFingerPan = false; // false = 1 палец двигает факел, true = 1 палец двигает камеру
+let touchSingleFingerPan = false;
 
 function toggleStats() {
     const isHidden = statsPanel.classList.toggle('hidden');
@@ -556,7 +548,6 @@ window.addEventListener('keydown', e => {
     if (e.code === 'KeyH') toggleStats();
 });
 
-// Генерация тестовых текстур
 function makeImage(w, h, drawFn) {
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
@@ -647,6 +638,20 @@ function sampleLightColor(wx, wy) {
     return SpriteBatch.color(Math.min(255, r), Math.min(255, g), Math.min(255, b), 255);
 }
 
+// Отрисовка любого спрайта с точным расчетом освещения всех 4 углов после масштабирования и поворота
+function drawSpriteLit(tex, x, y, ox = 0, oy = 0, sx = 1, sy = 1, rot = 0) {
+    const x0 = -ox * sx,              x1 = (tex.width - ox) * sx;
+    const y0 = -oy * sy,              y1 = (tex.height - oy) * sy;
+    const c = Math.cos(rot),          s = Math.sin(rot);
+
+    const cTL = sampleLightColor(x + x0 * c - y0 * s, y + x0 * s + y0 * c);
+    const cTR = sampleLightColor(x + x1 * c - y0 * s, y + x1 * s + y0 * c);
+    const cBL = sampleLightColor(x + x0 * c - y1 * s, y + x0 * s + y1 * c);
+    const cBR = sampleLightColor(x + x1 * c - y1 * s, y + x1 * s + y1 * c);
+
+    batch.draw(tex, x, y, ox, oy, sx, sy, rot, cTL, cTR, cBL, cBR);
+}
+
 const cornerColors = new Uint32Array((MAP_W + 1) * (MAP_H + 1));
 let camX = (MAP_W * 16) / 2, camY = (MAP_H * 16) / 2, zoom = 1.0;
 
@@ -657,7 +662,6 @@ let isMouseDragging = false;
 let lastVirt = { x: 0, y: 0 }, curVirt = { x: 0, y: 0 };
 let pointerScreenX = window.innerWidth / 2, pointerScreenY = window.innerHeight / 2;
 
-// Мышь (ПК)
 canvas.addEventListener('wheel', e => {
     e.preventDefault();
     zoom *= (e.deltaY < 0) ? 1.15 : 0.87;
@@ -681,7 +685,6 @@ window.addEventListener('mousemove', e => {
     }
 });
 
-// Сенсорный экран (Смартфоны / Планшеты): 1 палец + 2 пальца (Pinch-to-Zoom и панорама)
 let lastPinchDist = 0;
 
 canvas.addEventListener('touchstart', e => {
@@ -705,19 +708,16 @@ canvas.addEventListener('touchmove', e => {
     if (e.touches.length === 1) {
         const t = e.touches[0];
         if (touchSingleFingerPan) {
-            // Режим камеры одним пальцем
             batch.screenToVirtual(t.clientX, t.clientY, curVirt);
             camX -= (curVirt.x - lastVirt.x) / zoom;
             camY -= (curVirt.y - lastVirt.y) / zoom;
             lastVirt.x = curVirt.x;
             lastVirt.y = curVirt.y;
         } else {
-            // Режим факела одним пальцем
             pointerScreenX = t.clientX;
             pointerScreenY = t.clientY;
         }
     } else if (e.touches.length >= 2) {
-        // 2 пальца всегда двигают камеру и масштабируют (Pinch-to-Zoom)
         const t0 = e.touches[0], t1 = e.touches[1];
         const cx = (t0.clientX + t1.clientX) * 0.5;
         const cy = (t0.clientY + t1.clientY) * 0.5;
@@ -739,7 +739,6 @@ canvas.addEventListener('touchmove', e => {
 canvas.addEventListener('touchend', e => {
     e.preventDefault();
     if (e.touches.length === 1) {
-        // Плавный переход с 2 пальцев обратно на 1 палец без рывка камеры
         batch.screenToVirtual(e.touches[0].clientX, e.touches[0].clientY, lastVirt);
     }
     if (e.touches.length < 2) {
@@ -754,7 +753,6 @@ let frames = 0, lastFpsTime = performance.now(), cpuAccum = 0;
 const mouseWorld = { x: 0, y: 0 };
 
 function loop(time) {
-    // Точная синхронизация физического буфера WebGL с реальным CSS-размером и DPR экрана
     const dpr = window.devicePixelRatio || 1;
     const displayW = Math.max(1, Math.round(canvas.clientWidth * dpr));
     const displayH = Math.max(1, Math.round(canvas.clientHeight * dpr));
@@ -784,6 +782,7 @@ function loop(time) {
         }
     }
 
+    // 1. Тайлы стены и блоков
     const strideC = MAP_W + 1;
     for (let y = 0; y < MAP_H; y++) {
         const cRow = y * strideC;
@@ -802,14 +801,15 @@ function loop(time) {
         }
     }
 
+    // 2. Вращающиеся шестеренки (освещаются по 4 повернутым вершинам)
     for (let i = 0; i < 60; i++) {
         const gx = 200 + (i % 10) * 120;
         const gy = 160 + Math.floor(i / 10) * 140;
         const rot = (i % 2 === 0 ? 1 : -1) * tSec * 1.8;
-        const col = sampleLightColor(gx, gy);
-        batch.draw(gearTex, gx, gy, 23, 23, 1.0, 1.0, rot, col);
+        drawSpriteLit(gearTex, gx, gy, 23, 23, 1.0, 1.0, rot);
     }
 
+    // 3. Прыгающие слизни (освещаются с учетом сжатия и зеркального отражения)
     for (let i = 0; i < 80; i++) {
         const phase = tSec * 4 + i;
         const jump = Math.max(0, Math.sin(phase));
@@ -819,20 +819,15 @@ function loop(time) {
         const dir = Math.cos(tSec + i) >= 0 ? 1 : -1;
         const scaleX = (1.0 - squash) * dir;
         const scaleY = 1.0 + squash;
-        const cTL = sampleLightColor(sx - 19, sy - 28);
-        const cTR = sampleLightColor(sx + 19, sy - 28);
-        const cBL = sampleLightColor(sx - 19, sy);
-        const cBR = sampleLightColor(sx + 19, sy);
-        batch.draw(slimeTex, sx, sy, 19, 28, scaleX, scaleY, 0, cTL, cTR, cBL, cBR);
+        drawSpriteLit(slimeTex, sx, sy, 19, 28, scaleX, scaleY, 0);
     }
 
-    const bladeGlow = SpriteBatch.color(120, 220, 255, 255);
+    // 4. Вращающиеся мечи (честное освещение острия и рукоятки с учетом угла поворота!)
     for (let i = 0; i < 70; i++) {
         const mx = 220 + ((i * 67) % 1200);
         const my = 180 + ((i * 59) % 800);
         const swingAngle = Math.sin(tSec * 5 + i) * 1.4;
-        const hiltColor = sampleLightColor(mx, my);
-        batch.draw(swordTex, mx, my, 9, 48, 1.2, 1.2, swingAngle, bladeGlow, bladeGlow, hiltColor, hiltColor);
+        drawSpriteLit(swordTex, mx, my, 9, 48, 1.2, 1.2, swingAngle);
     }
 
     batch.end();
